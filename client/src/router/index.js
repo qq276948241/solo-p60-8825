@@ -30,7 +30,7 @@ const routes = [
     path: '/item/:id',
     name: 'ItemDetail',
     component: () => import('@/views/ItemDetail.vue'),
-    meta: { requiresAuth: true }
+    meta: { requiresAuth: false }
   },
   {
     path: '/my-items',
