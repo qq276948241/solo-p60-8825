@@ -100,6 +100,151 @@
       </div>
     </div>
     
+    <div v-if="item" class="comments-section">
+      <div class="card">
+        <h3 class="section-title">
+          💬 公开问答区
+          <span class="comment-count">({{ comments.length }}条讨论)</span>
+        </h3>
+        
+        <div v-if="userStore.isLoggedIn" class="comment-input-area">
+          <div class="comment-avatar">
+            {{ userStore.user?.nickname?.charAt(0) || userStore.user?.username?.charAt(0) || '用' }}
+          </div>
+          <div class="comment-input-wrap">
+            <textarea
+              v-model="newComment"
+              class="form-control comment-textarea"
+              placeholder="有问题？向卖家提问或参与讨论..."
+              rows="3"
+            ></textarea>
+            <div class="comment-actions">
+              <span class="char-count">{{ newComment.length }}/500</span>
+              <button
+                class="btn btn-primary btn-sm"
+                @click="submitComment"
+                :disabled="!newComment.trim() || submittingComment"
+              >
+                {{ submittingComment ? '提交中...' : '发布问题' }}
+              </button>
+            </div>
+          </div>
+        </div>
+        <div v-else class="comment-login-hint">
+          <p>请先 <router-link to="/login">登录</router-link> 后参与讨论</p>
+        </div>
+        
+        <div class="comments-list">
+          <div v-if="commentsLoading" class="comments-loading">
+            <div class="spinner-sm"></div>
+            <span>加载评论中...</span>
+          </div>
+          
+          <div v-else-if="comments.length === 0" class="comments-empty">
+            <div class="comments-empty-icon">💭</div>
+            <p>暂无讨论，来问第一个问题吧！</p>
+          </div>
+          
+          <div v-else>
+            <div
+              v-for="comment in comments"
+              :key="comment.id"
+              class="comment-item"
+            >
+              <div class="comment-avatar">
+                {{ comment.user_name?.charAt(0) || '用' }}
+              </div>
+              <div class="comment-body">
+                <div class="comment-header">
+                  <span class="comment-user">{{ comment.user_name }}</span>
+                  <span v-if="comment.user_id === item.user_id" class="seller-badge">卖家</span>
+                  <span class="comment-time">{{ formatDate(comment.created_at) }}</span>
+                  <div class="comment-actions-right">
+                    <button
+                      v-if="userStore.isLoggedIn"
+                      class="action-link"
+                      @click="showReplyInput(comment)"
+                    >
+                      回复
+                    </button>
+                    <button
+                      v-if="userStore.isLoggedIn && comment.user_id === userStore.user.id"
+                      class="action-link action-delete"
+                      @click="deleteComment(comment)"
+                    >
+                      删除
+                    </button>
+                  </div>
+                </div>
+                <div class="comment-content">{{ comment.content }}</div>
+                
+                <div
+                  v-if="replyingTo === comment.id"
+                  class="reply-input-area"
+                >
+                  <textarea
+                    v-model="replyContent"
+                    class="form-control reply-textarea"
+                    :placeholder="`回复 @${comment.user_name}...`"
+                    rows="2"
+                  ></textarea>
+                  <div class="reply-actions">
+                    <button class="btn btn-link" @click="cancelReply">取消</button>
+                    <button
+                      class="btn btn-primary btn-xs"
+                      @click="submitReply(comment)"
+                      :disabled="!replyContent.trim() || submittingReply"
+                    >
+                      {{ submittingReply ? '发送中...' : '回复' }}
+                    </button>
+                  </div>
+                </div>
+                
+                <div v-if="comment.replies && comment.replies.length > 0" class="replies-list">
+                  <div
+                    v-for="reply in comment.replies"
+                    :key="reply.id"
+                    class="reply-item"
+                  >
+                    <div class="reply-avatar">
+                      {{ reply.user_name?.charAt(0) || '用' }}
+                    </div>
+                    <div class="reply-body">
+                      <div class="reply-header">
+                        <span class="comment-user">{{ reply.user_name }}</span>
+                        <span v-if="reply.user_id === item.user_id" class="seller-badge">卖家</span>
+                        <span v-if="reply.reply_to_name" class="reply-to">
+                          回复 @{{ reply.reply_to_name }}
+                        </span>
+                        <span class="comment-time">{{ formatDate(reply.created_at) }}</span>
+                        <div class="comment-actions-right">
+                          <button
+                            v-if="userStore.isLoggedIn"
+                            class="action-link"
+                            @click="showReplyToReply(comment, reply)"
+                          >
+                            回复
+                          </button>
+                          <button
+                            v-if="userStore.isLoggedIn && reply.user_id === userStore.user.id"
+                            class="action-link action-delete"
+                            @click="deleteComment(reply)"
+                          >
+                            删除
+                          </button>
+                        </div>
+                      </div>
+                      <div class="comment-content">{{ reply.content }}</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    
     <div v-if="showChatModal" class="modal-overlay" @click.self="showChatModal = false">
       <div class="modal-content">
         <div class="modal-header">
@@ -146,6 +291,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useItemStore } from '@/stores/item'
 import { useMessageStore } from '@/stores/message'
 import { useUserStore } from '@/stores/user'
+import { useCommentStore } from '@/stores/comments'
 import { showToast, formatPrice, formatDate, getCategoryIcon } from '@/utils/helpers'
 
 const route = useRoute()
@@ -153,6 +299,7 @@ const router = useRouter()
 const itemStore = useItemStore()
 const messageStore = useMessageStore()
 const userStore = useUserStore()
+const commentStore = useCommentStore()
 
 const loading = ref(false)
 const actionLoading = ref(false)
@@ -162,6 +309,15 @@ const currentImage = ref('')
 const isFavorited = ref(false)
 const showChatModal = ref(false)
 const messageContent = ref('')
+
+const comments = ref([])
+const commentsLoading = ref(false)
+const newComment = ref('')
+const submittingComment = ref(false)
+const submittingReply = ref(false)
+const replyingTo = ref(null)
+const replyContent = ref('')
+const replyToUser = ref(null)
 
 const isOwner = computed(() => {
   return item.value && userStore.user && item.value.user_id === userStore.user.id
@@ -244,8 +400,109 @@ const handleDelete = async () => {
   }
 }
 
+const fetchComments = async () => {
+  try {
+    commentsLoading.value = true
+    const res = await commentStore.getComments(route.params.id)
+    comments.value = res.comments
+  } catch (err) {
+    showToast('加载评论失败', 'error')
+  } finally {
+    commentsLoading.value = false
+  }
+}
+
+const submitComment = async () => {
+  if (!newComment.value.trim()) return
+  
+  try {
+    submittingComment.value = true
+    const res = await commentStore.addComment({
+      itemId: route.params.id,
+      content: newComment.value.trim()
+    })
+    comments.value.unshift(res.comment)
+    newComment.value = ''
+    showToast('发布成功')
+  } catch (err) {
+    showToast(err.message || '发布失败', 'error')
+  } finally {
+    submittingComment.value = false
+  }
+}
+
+const showReplyInput = (comment) => {
+  if (!userStore.isLoggedIn) {
+    router.push('/login')
+    return
+  }
+  replyingTo.value = comment.id
+  replyToUser.value = { id: comment.user_id, name: comment.user_name }
+  replyContent.value = ''
+}
+
+const showReplyToReply = (parentComment, reply) => {
+  if (!userStore.isLoggedIn) {
+    router.push('/login')
+    return
+  }
+  replyingTo.value = parentComment.id
+  replyToUser.value = { id: reply.user_id, name: reply.user_name }
+  replyContent.value = ''
+}
+
+const cancelReply = () => {
+  replyingTo.value = null
+  replyToUser.value = null
+  replyContent.value = ''
+}
+
+const submitReply = async (parentComment) => {
+  if (!replyContent.value.trim()) return
+  
+  try {
+    submittingReply.value = true
+    const res = await commentStore.addComment({
+      itemId: route.params.id,
+      content: replyContent.value.trim(),
+      parentId: parentComment.id,
+      replyToUserId: replyToUser.value?.id || parentComment.user_id
+    })
+    if (!parentComment.replies) {
+      parentComment.replies = []
+    }
+    parentComment.replies.push(res.comment)
+    cancelReply()
+    showToast('回复成功')
+  } catch (err) {
+    showToast(err.message || '回复失败', 'error')
+  } finally {
+    submittingReply.value = false
+  }
+}
+
+const deleteComment = async (comment) => {
+  if (!confirm('确定要删除这条评论吗？')) return
+  
+  try {
+    await commentStore.deleteComment(comment.id)
+    if (comment.parent_id && comment.parent_id > 0) {
+      const parent = comments.value.find(c => c.id === comment.parent_id)
+      if (parent && parent.replies) {
+        parent.replies = parent.replies.filter(r => r.id !== comment.id)
+      }
+    } else {
+      comments.value = comments.value.filter(c => c.id !== comment.id)
+    }
+    showToast('删除成功')
+  } catch (err) {
+    showToast(err.message || '删除失败', 'error')
+  }
+}
+
 onMounted(() => {
   fetchItemDetail()
+  fetchComments()
 })
 </script>
 
@@ -592,6 +849,300 @@ onMounted(() => {
   justify-content: flex-end;
 }
 
+.comments-section {
+  margin-top: 24px;
+}
+
+.comments-section .card {
+  padding: 24px;
+}
+
+.comment-count {
+  font-size: 14px;
+  color: #999;
+  font-weight: 400;
+}
+
+.comment-input-area {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 24px;
+  padding: 16px;
+  background: #fafafa;
+  border-radius: 8px;
+}
+
+.comment-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.comment-input-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.comment-textarea {
+  resize: none;
+  font-size: 14px;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  padding: 10px 12px;
+  transition: border-color 0.2s;
+  font-family: inherit;
+}
+
+.comment-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.comment-actions {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.char-count {
+  font-size: 12px;
+  color: #999;
+}
+
+.btn-sm {
+  padding: 6px 16px;
+  font-size: 13px;
+}
+
+.btn-xs {
+  padding: 4px 12px;
+  font-size: 12px;
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: #666;
+  padding: 6px 12px;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.btn-link:hover {
+  color: #333;
+}
+
+.comment-login-hint {
+  text-align: center;
+  padding: 20px;
+  background: #fafafa;
+  border-radius: 8px;
+  margin-bottom: 24px;
+  color: #666;
+}
+
+.comment-login-hint a {
+  color: #667eea;
+  text-decoration: none;
+  font-weight: 500;
+}
+
+.comments-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  padding: 40px;
+  color: #999;
+}
+
+.spinner-sm {
+  width: 20px;
+  height: 20px;
+  border: 2px solid #f0f0f0;
+  border-top-color: #667eea;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+.comments-empty {
+  text-align: center;
+  padding: 40px;
+  color: #999;
+}
+
+.comments-empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.comment-item {
+  display: flex;
+  gap: 12px;
+  padding: 16px 0;
+  border-bottom: 1px solid #f5f5f5;
+}
+
+.comment-item:last-child {
+  border-bottom: none;
+}
+
+.comment-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.comment-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+
+.comment-user {
+  font-weight: 500;
+  color: #333;
+  font-size: 14px;
+}
+
+.seller-badge {
+  background: linear-gradient(135deg, #ff9a56 0%, #ff6b6b 100%);
+  color: white;
+  padding: 1px 8px;
+  border-radius: 8px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.comment-time {
+  color: #999;
+  font-size: 12px;
+}
+
+.comment-actions-right {
+  margin-left: auto;
+  display: flex;
+  gap: 8px;
+}
+
+.action-link {
+  background: none;
+  border: none;
+  color: #667eea;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  transition: background 0.2s;
+}
+
+.action-link:hover {
+  background: #f0f2ff;
+}
+
+.action-delete {
+  color: #ff4757;
+}
+
+.action-delete:hover {
+  background: #fff0f0;
+}
+
+.comment-content {
+  color: #444;
+  line-height: 1.7;
+  font-size: 14px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.reply-input-area {
+  margin-top: 12px;
+  padding: 12px;
+  background: #fafafa;
+  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.reply-textarea {
+  resize: none;
+  font-size: 13px;
+  border: 1px solid #e0e0e0;
+  border-radius: 4px;
+  padding: 8px 10px;
+  font-family: inherit;
+}
+
+.reply-textarea:focus {
+  outline: none;
+  border-color: #667eea;
+}
+
+.reply-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.replies-list {
+  margin-top: 12px;
+  padding-left: 12px;
+  border-left: 2px solid #f0f0f0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.reply-item {
+  display: flex;
+  gap: 10px;
+}
+
+.reply-avatar {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #43cea2 0%, #185a9d 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.reply-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.reply-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+
+.reply-to {
+  color: #667eea;
+  font-size: 12px;
+}
+
 @media (max-width: 968px) {
   .detail-container {
     grid-template-columns: 1fr;
@@ -605,6 +1156,15 @@ onMounted(() => {
   .seller-info,
   .item-description {
     padding: 20px 16px;
+  }
+  
+  .comments-section .card {
+    padding: 16px;
+  }
+  
+  .comment-input-area {
+    flex-direction: column;
+    align-items: flex-start;
   }
 }
 </style>

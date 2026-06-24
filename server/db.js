@@ -66,6 +66,19 @@ db.serialize(() => {
     FOREIGN KEY (item_id) REFERENCES items(id),
     UNIQUE(user_id, item_id)
   )`);
+
+  db.run(`CREATE TABLE IF NOT EXISTS comments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    item_id INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    parent_id INTEGER DEFAULT 0,
+    reply_to_user_id INTEGER,
+    content TEXT NOT NULL,
+    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (item_id) REFERENCES items(id),
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    FOREIGN KEY (reply_to_user_id) REFERENCES users(id)
+  )`);
 });
 
 module.exports = db;

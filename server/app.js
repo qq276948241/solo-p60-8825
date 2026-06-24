@@ -7,6 +7,7 @@ const db = require('./db');
 const userRoutes = require('./routes/users');
 const itemRoutes = require('./routes/items');
 const messageRoutes = require('./routes/messages');
+const commentRoutes = require('./routes/comments');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -30,6 +31,7 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 app.use('/api/users', userRoutes);
 app.use('/api/items', itemRoutes);
 app.use('/api/messages', messageRoutes);
+app.use('/api/comments', commentRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({ status: 'ok', message: '邻里闲置交易平台服务运行正常' });
